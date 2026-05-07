@@ -1,0 +1,14 @@
+{
+  "name": "starhangar-pricing-agent",
+  "version": "1.0.0",
+  "description": "Scrapes star-hangar.com to recommend CCU sell prices",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.5.2",
+    "puppeteer": "^24.43.0"
+  }
+}
