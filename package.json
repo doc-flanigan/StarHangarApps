@@ -4,11 +4,13 @@
   "description": "Scrapes star-hangar.com to recommend CCU sell prices",
   "main": "agent.js",
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "autofill": "node autofill.js"
   },
   "dependencies": {
     "csv-parse": "^5.6.0",
     "csv-stringify": "^6.5.2",
+    "dotenv": "^17.4.2",
     "puppeteer": "^24.43.0"
   }
 }

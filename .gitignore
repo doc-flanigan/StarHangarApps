@@ -2,3 +2,7 @@ node_modules/
 *.jpg
 *.jpeg
 *.png
+.env
+screenshots/
+autofill_progress.json
+ship_options_cache.json
