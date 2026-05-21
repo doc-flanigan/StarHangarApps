@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "app/api/price/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}
