@@ -26,8 +26,6 @@ interface CCUResult {
 }
 
 export default function Home() {
-  const [browserlessKey, setBrowserlessKey] = useState("");
-  const [anthropicKey, setAnthropicKey] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("");
@@ -39,7 +37,7 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
 
   async function run() {
-    if (!csvFile || !browserlessKey || !anthropicKey) return;
+    if (!csvFile) return;
 
     setRunning(true);
     setResults([]);
@@ -50,8 +48,6 @@ export default function Home() {
 
     const formData = new FormData();
     formData.append("csv", csvFile);
-    formData.append("browserlessKey", browserlessKey);
-    formData.append("anthropicKey", anthropicKey);
 
     abortRef.current = new AbortController();
 
@@ -145,58 +141,6 @@ export default function Home() {
 
         {/* Config */}
         <div className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800">
-          <h2 className="font-semibold text-gray-200">Configuration</h2>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs text-gray-400 uppercase tracking-wide">
-                Browserless API Key
-              </span>
-              <input
-                type="password"
-                placeholder="browserless token…"
-                value={browserlessKey}
-                onChange={(e) => setBrowserlessKey(e.target.value)}
-                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-              />
-              <span className="text-xs text-gray-500">
-                Get one free at{" "}
-                <a
-                  href="https://browserless.io"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-amber-500 hover:underline"
-                >
-                  browserless.io
-                </a>
-              </span>
-            </label>
-
-            <label className="block">
-              <span className="text-xs text-gray-400 uppercase tracking-wide">
-                Anthropic API Key
-              </span>
-              <input
-                type="password"
-                placeholder="sk-ant-…"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-              />
-              <span className="text-xs text-gray-500">
-                From{" "}
-                <a
-                  href="https://console.anthropic.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-amber-500 hover:underline"
-                >
-                  console.anthropic.com
-                </a>
-              </span>
-            </label>
-          </div>
-
           <label className="block">
             <span className="text-xs text-gray-400 uppercase tracking-wide">
               CCU Inventory CSV
@@ -215,7 +159,7 @@ export default function Home() {
           <div className="flex gap-3 pt-2">
             <button
               onClick={run}
-              disabled={running || !csvFile || !browserlessKey || !anthropicKey}
+              disabled={running || !csvFile}
               className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-semibold rounded-lg text-sm transition-colors"
             >
               {running ? "Running…" : "Run Pricing Agent"}

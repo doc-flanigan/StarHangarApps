@@ -188,12 +188,14 @@ ${JSON.stringify(payload, null, 2)}
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("csv") as File | null;
-  const browserlessKey = formData.get("browserlessKey") as string | null;
-  const anthropicKey = formData.get("anthropicKey") as string | null;
 
   if (!file) return new Response("No CSV file", { status: 400 });
-  if (!browserlessKey) return new Response("No Browserless API key", { status: 400 });
-  if (!anthropicKey) return new Response("No Anthropic API key", { status: 400 });
+
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  if (!browserlessKey) return new Response("BROWSERLESS_API_KEY is not set", { status: 500 });
+  if (!anthropicKey) return new Response("ANTHROPIC_API_KEY is not set", { status: 500 });
 
   const csvText = await file.text();
   const rows = parseCSV(csvText);
