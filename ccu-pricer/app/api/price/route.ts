@@ -85,7 +85,7 @@ async function scrapeListings(
     // Search StarHangar for this CCU
     const searchTerm = encodeURIComponent(`${fromShip} to ${toShip}`);
     await page.goto(
-      `https://www.starhangar.com/?s=${searchTerm}&post_type=product`,
+      `https://www.star-hangar.com/?s=${searchTerm}&post_type=product`,
       { waitUntil: "domcontentloaded", timeout: 30000 }
     );
     await page.waitForTimeout(2000);
