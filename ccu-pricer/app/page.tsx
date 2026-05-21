@@ -244,21 +244,23 @@ export default function Home() {
                         <tr key={i} className="hover:bg-gray-800/30">
                           <td className="px-4 py-2 text-gray-300">{r.fromShip}</td>
                           <td className="px-4 py-2 text-gray-300">{r.toShip}</td>
-                          <td className="px-4 py-2 text-right">
-                            {r.error ? (
-                              <span className="text-red-400 text-xs">error</span>
-                            ) : (
-                              <span className={r.listingCount === 0 ? "text-gray-500" : "text-green-400"}>
-                                {r.listingCount}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-right text-gray-300">
-                            {r.minPrice != null ? `$${r.minPrice}` : "—"}
-                          </td>
-                          <td className="px-4 py-2 text-right text-gray-300">
-                            {r.maxPrice != null ? `$${r.maxPrice}` : "—"}
-                          </td>
+                          {r.error ? (
+                            <td colSpan={3} className="px-4 py-2 text-red-400 text-xs">{r.error}</td>
+                          ) : (
+                            <>
+                              <td className="px-4 py-2 text-right">
+                                <span className={r.listingCount === 0 ? "text-gray-500" : "text-green-400"}>
+                                  {r.listingCount}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-300">
+                                {r.minPrice != null ? `$${r.minPrice}` : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-300">
+                                {r.maxPrice != null ? `$${r.maxPrice}` : "—"}
+                              </td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
