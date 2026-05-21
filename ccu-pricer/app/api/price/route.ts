@@ -167,12 +167,18 @@ async function analyzeWithClaude(
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 8096,
-    system: `You are a Star Citizen marketplace pricing expert helping a seller price CCUs on StarHangar.com.
+    system: [
+      {
+        type: "text",
+        text: `You are a Star Citizen marketplace pricing expert helping a seller price CCUs on StarHangar.com.
 CCUs let players upgrade from one ship to another. Recommend competitive prices based on:
 - Active market listings (price at or just below the lowest to sell quickly)
 - MSRP difference (cost floor)
 - Insurance type (Warbond/120-month = more valuable)
 - If no market data: estimate MSRP diff × 1.1–1.3 for popular paths`,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
