@@ -90,19 +90,29 @@ async function scrapeListings(
     );
     await page.waitForTimeout(2000);
 
-    // Extract all product listings
+    // Extract listings — scope to main content only to avoid sidebar pollution
     const listings = await page.evaluate(() => {
       const results: { price: number; title: string }[] = [];
-      const products = document.querySelectorAll(
-        ".product, li.product, .woocommerce-loop-product, [class*='product-item']"
-      );
+
+      // Scope to the primary content column only
+      const main =
+        document.querySelector("main .woocommerce") ??
+        document.querySelector("#main") ??
+        document.querySelector("main") ??
+        document;
+
+      // WooCommerce search results live in ul.products inside the main area
+      const products = main.querySelectorAll("ul.products li.product");
+
+      // If no ul.products found, the search returned no results
+      if (products.length === 0) return results;
 
       products.forEach((el) => {
-        const priceEl = el.querySelector(
-          ".price .woocommerce-Price-amount, .woocommerce-Price-amount, .price"
-        );
         const titleEl = el.querySelector(
-          ".woocommerce-loop-product__title, h2, h3, .product-title"
+          ".woocommerce-loop-product__title, h2, h3"
+        );
+        const priceEl = el.querySelector(
+          "ins .woocommerce-Price-amount, .woocommerce-Price-amount"
         );
         if (!priceEl) return;
 
