@@ -90,31 +90,45 @@ async function scrapeListings(
     );
     await page.waitForTimeout(2000);
 
-    // Extract listings — scope to main content only to avoid sidebar pollution
+    // Check result count from WooCommerce so we know if search matched anything
+    const resultCount = await page.evaluate(() => {
+      const el = document.querySelector(".woocommerce-result-count");
+      return el?.textContent?.trim() ?? null;
+    });
+    console.log(`[scrape] ${fromShip} → ${toShip}: page result count: ${resultCount}`);
+
+    // Extract listings — dump structure for debugging, then parse products
     const listings = await page.evaluate(() => {
       const results: { price: number; title: string }[] = [];
 
-      // Scope to the primary content column only
-      const main =
-        document.querySelector("main .woocommerce") ??
-        document.querySelector("#main") ??
-        document.querySelector("main") ??
-        document;
+      // Try progressively broader containers
+      const containers = [
+        document.querySelector("ul.products"),
+        document.querySelector(".products"),
+        document.querySelector("#main"),
+        document.querySelector("main"),
+        document.body,
+      ];
 
-      // WooCommerce search results live in ul.products inside the main area
-      const products = main.querySelectorAll("ul.products li.product");
+      const container = containers.find((c) => c !== null) ?? document.body;
 
-      // If no ul.products found, the search returned no results
-      if (products.length === 0) return results;
+      // All WooCommerce price elements anywhere in the container
+      const priceEls = container!.querySelectorAll(
+        ".woocommerce-Price-amount"
+      );
 
-      products.forEach((el) => {
-        const titleEl = el.querySelector(
-          ".woocommerce-loop-product__title, h2, h3"
-        );
-        const priceEl = el.querySelector(
-          "ins .woocommerce-Price-amount, .woocommerce-Price-amount"
-        );
-        if (!priceEl) return;
+      priceEls.forEach((priceEl) => {
+        // Walk up to find the product wrapper and its title
+        let node: Element | null = priceEl;
+        let titleEl: Element | null = null;
+        for (let i = 0; i < 6; i++) {
+          node = node?.parentElement ?? null;
+          if (!node) break;
+          const t = node.querySelector(
+            ".woocommerce-loop-product__title, h2, h3"
+          );
+          if (t) { titleEl = t; break; }
+        }
 
         const priceText = priceEl.textContent ?? "";
         const match = priceText.match(/[\d,]+\.?\d*/);
@@ -126,7 +140,14 @@ async function scrapeListings(
         }
       });
 
-      return results;
+      // Deduplicate by title+price
+      const seen = new Set<string>();
+      return results.filter(({ price, title }) => {
+        const key = `${title}|${price}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     });
 
     await context.close();
