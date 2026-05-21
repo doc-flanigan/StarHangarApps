@@ -74,7 +74,8 @@ async function scrapeListings(
   fromShip: string,
   toShip: string
 ): Promise<{ price: number; insurance?: string; note?: string }[]> {
-  const wsEndpoint = `wss://production-sfo.browserless.io?token=${browserlessKey}`;
+  const host = process.env.BROWSERLESS_HOST ?? "production-sfo.browserless.io";
+  const wsEndpoint = `wss://${host}?token=${browserlessKey}`;
 
   const browser = await chromium.connectOverCDP(wsEndpoint);
   try {
