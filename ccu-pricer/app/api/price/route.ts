@@ -82,53 +82,30 @@ async function scrapeListings(
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Search StarHangar for this CCU
+    // Search StarHangar for this CCU — Magento search URL
     const searchTerm = encodeURIComponent(`${fromShip} to ${toShip}`);
     await page.goto(
-      `https://www.star-hangar.com/?s=${searchTerm}&post_type=product`,
+      `https://star-hangar.com/catalogsearch/result/?q=${searchTerm}`,
       { waitUntil: "domcontentloaded", timeout: 30000 }
     );
     await page.waitForTimeout(2000);
 
-    // Check result count from WooCommerce so we know if search matched anything
+    // Check result count from Magento toolbar
     const resultCount = await page.evaluate(() => {
-      const el = document.querySelector(".woocommerce-result-count");
+      const el = document.querySelector(".toolbar-amount, .search.results .subtitle");
       return el?.textContent?.trim() ?? null;
     });
-    console.log(`[scrape] ${fromShip} → ${toShip}: page result count: ${resultCount}`);
+    console.log(`[scrape] ${fromShip} → ${toShip}: ${resultCount}`);
 
-    // Extract listings — dump structure for debugging, then parse products
+    // Extract listings — Magento product list selectors
     const listings = await page.evaluate(() => {
       const results: { price: number; title: string }[] = [];
 
-      // Try progressively broader containers
-      const containers = [
-        document.querySelector("ul.products"),
-        document.querySelector(".products"),
-        document.querySelector("#main"),
-        document.querySelector("main"),
-        document.body,
-      ];
-
-      const container = containers.find((c) => c !== null) ?? document.body;
-
-      // All WooCommerce price elements anywhere in the container
-      const priceEls = container!.querySelectorAll(
-        ".woocommerce-Price-amount"
-      );
-
-      priceEls.forEach((priceEl) => {
-        // Walk up to find the product wrapper and its title
-        let node: Element | null = priceEl;
-        let titleEl: Element | null = null;
-        for (let i = 0; i < 6; i++) {
-          node = node?.parentElement ?? null;
-          if (!node) break;
-          const t = node.querySelector(
-            ".woocommerce-loop-product__title, h2, h3"
-          );
-          if (t) { titleEl = t; break; }
-        }
+      const products = document.querySelectorAll(".product-item, .product-items .item");
+      products.forEach((el) => {
+        const titleEl = el.querySelector(".product-item-name, .product-name");
+        const priceEl = el.querySelector(".price-box .price, .price");
+        if (!priceEl) return;
 
         const priceText = priceEl.textContent ?? "";
         const match = priceText.match(/[\d,]+\.?\d*/);
