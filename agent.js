@@ -137,14 +137,19 @@ async function fetchListings(page, fromShip, toShip) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  // Find inventory CSV (skip any output files we already created)
-  const csvFiles = fs.readdirSync('.')
-    .filter(f => f.endsWith('.csv') && !f.startsWith('pricing_'));
-  if (!csvFiles.length) {
-    console.error('Error: no inventory CSV found in current directory.');
-    process.exit(1);
+  // Find inventory CSV — accept an explicit path as the first CLI argument,
+  // otherwise fall back to any non-pricing CSV in the current directory.
+  let csvPath = process.argv[2] || null;
+  if (!csvPath) {
+    const csvFiles = fs.readdirSync('.')
+      .filter(f => f.endsWith('.csv') && !f.startsWith('pricing_'))
+      .sort();
+    if (!csvFiles.length) {
+      console.error('Error: no inventory CSV found. Pass the path as an argument: node agent.js <path-to-csv>');
+      process.exit(1);
+    }
+    csvPath = csvFiles[csvFiles.length - 1]; // pick newest by name
   }
-  const csvPath = csvFiles[0];
   console.log(`\nLoading inventory: ${csvPath}`);
 
   const rows = loadInventory(csvPath);
@@ -242,9 +247,10 @@ async function main() {
 
     let recommendedPrice = '';
     if (market.lowest !== null) {
-      const rec = parseFloat((market.lowest - UNDERCUT_AMOUNT).toFixed(2));
-      // Never price below cost + $1 minimum margin
-      recommendedPrice = Math.max(rec, ourCost + 1).toFixed(2);
+      const rec = market.lowest - UNDERCUT_AMOUNT;
+      // Round up to nearest $5 increment, never below cost + $1 minimum margin
+      const rounded = Math.ceil(rec / 5) * 5;
+      recommendedPrice = Math.max(rounded, Math.ceil((ourCost + 1) / 5) * 5).toFixed(2);
     }
 
     const marginUsd = recommendedPrice
