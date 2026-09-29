@@ -9,7 +9,7 @@ const W = 1200;
 const H = 630;
 const SHIP_W = 500;
 const SHIP_H = 340;
-const SHIP_TOP = 95;
+const SHIP_TOP = 80;
 
 // ── Fonts ─────────────────────────────────────────────────────────────────────
 
@@ -68,12 +68,28 @@ async function getShipMatrix(): Promise<ShipEntry[]> {
   return matrixCache!;
 }
 
+// Strip common SC manufacturer prefixes so "Aurora MR" matches "RSI Aurora MR"
+const PREFIXES = ["roberts space industries", "rsi", "origin", "aegis dynamics", "aegis",
+  "drake interplanetary", "drake", "misc", "anvil aerospace", "anvil", "argo astronautics",
+  "argo", "crusader industries", "crusader", "esperia", "gatac", "banu", "aopoa",
+  "consolidated outland", "tumbril", "greycat", "cnou", "kyatok", "xian"];
+
+function normalize(s: string): string {
+  let n = s.toLowerCase().trim();
+  for (const p of PREFIXES) {
+    if (n.startsWith(p + " ")) { n = n.slice(p.length + 1).trim(); break; }
+  }
+  return n;
+}
+
 function findShip(matrix: ShipEntry[], query: string): ShipEntry | null {
-  const q = query.toLowerCase().trim();
+  const q = normalize(query);
+  const norm = matrix.map((s) => ({ ...s, _n: normalize(s.name) }));
   return (
-    matrix.find((s) => s.name.toLowerCase() === q) ??
-    matrix.find((s) => s.name.toLowerCase().includes(q)) ??
-    matrix.find((s) => q.includes(s.name.toLowerCase())) ??
+    norm.find((s) => s._n === q) ??
+    norm.find((s) => s.name.toLowerCase() === query.toLowerCase().trim()) ??
+    norm.find((s) => s._n.includes(q)) ??
+    norm.find((s) => q.includes(s._n)) ??
     null
   );
 }
@@ -162,13 +178,13 @@ export async function GET(req: NextRequest) {
           top: 0,
           left: 0,
           right: 0,
-          height: 52,
+          height: 80,
           background: "rgba(8,8,15,0.75)",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#f59e0b", fontSize: 14, fontWeight: 700, letterSpacing: 4 }}>
+        <span style={{ color: "#f59e0b", fontSize: 28, fontWeight: 700, letterSpacing: 8 }}>
           CROSS-CHASSIS UPGRADE
         </span>
       </div>
@@ -191,15 +207,15 @@ export async function GET(req: NextRequest) {
         style={{
           display: "flex",
           position: "absolute",
-          left: W / 2 - 60,
-          top: H / 2 - 50,
-          width: 120,
-          height: 100,
+          left: W / 2 - 80,
+          top: H / 2 - 80,
+          width: 160,
+          height: 160,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#f59e0b", fontSize: 72, fontWeight: 700, lineHeight: 1 }}>→</span>
+        <span style={{ color: "#f59e0b", fontSize: 140, fontWeight: 700, lineHeight: 1 }}>→</span>
       </div>
 
       {/* Left ship label */}
@@ -210,12 +226,12 @@ export async function GET(req: NextRequest) {
           alignItems: "center",
           position: "absolute",
           left: 40,
-          bottom: 48,
+          bottom: 50,
           width: SHIP_W,
         }}
       >
-        <span style={{ color: "white", fontSize: 26, fontWeight: 700 }}>{fromShip}</span>
-        <span style={{ color: "#9ca3af", fontSize: 13, letterSpacing: 2, marginTop: 4 }}>FROM</span>
+        <span style={{ color: "white", fontSize: 52, fontWeight: 700 }}>{fromShip}</span>
+        <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 4, marginTop: 6 }}>FROM</span>
       </div>
 
       {/* Right ship label */}
@@ -226,12 +242,12 @@ export async function GET(req: NextRequest) {
           alignItems: "center",
           position: "absolute",
           right: 40,
-          bottom: 48,
+          bottom: 50,
           width: SHIP_W,
         }}
       >
-        <span style={{ color: "white", fontSize: 26, fontWeight: 700 }}>{toShip}</span>
-        <span style={{ color: "#9ca3af", fontSize: 13, letterSpacing: 2, marginTop: 4 }}>TO</span>
+        <span style={{ color: "white", fontSize: 52, fontWeight: 700 }}>{toShip}</span>
+        <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 4, marginTop: 6 }}>TO</span>
       </div>
 
       {/* Watermark */}
@@ -239,13 +255,13 @@ export async function GET(req: NextRequest) {
         style={{
           display: "flex",
           position: "absolute",
-          bottom: 12,
+          bottom: 14,
           left: 0,
           right: 0,
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#4b5563", fontSize: 12 }}>star-hangar.com</span>
+        <span style={{ color: "#4b5563", fontSize: 20 }}>star-hangar.com</span>
       </div>
     </div>
   );
