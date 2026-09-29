@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface StreamEvent {
   type: "start" | "searching" | "result" | "analyzing" | "done" | "error";
@@ -407,12 +407,72 @@ export default function Home() {
   );
 }
 
+function ShipAutocomplete({
+  label,
+  value,
+  onChange,
+  ships,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  ships: string[];
+  placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  const filtered = value.length > 0
+    ? ships.filter((s) => s.toLowerCase().includes(value.toLowerCase())).slice(0, 10)
+    : [];
+  const showDropdown = focused && filtered.length > 0;
+
+  return (
+    <div className="relative">
+      <label className="block">
+        <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+        <input
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
+        />
+      </label>
+      {showDropdown && (
+        <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+          {filtered.map((ship) => (
+            <button
+              key={ship}
+              onMouseDown={() => { onChange(ship); setFocused(false); }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-amber-600/20 hover:text-amber-300 transition-colors border-b border-gray-700/50 last:border-0"
+            >
+              {ship}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThumbnailTester() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [ships, setShips] = useState<string[]>([]);
+
+  // Fetch ship list once on mount
+  useEffect(() => {
+    fetch("/api/ships")
+      .then((r) => r.json())
+      .then((d) => setShips(d.ships ?? []))
+      .catch(() => {});
+  }, []);
 
   async function generate() {
     if (!from.trim() || !to.trim()) return;
@@ -450,28 +510,20 @@ function ThumbnailTester() {
           Generate a 1200×630 listing thumbnail using RSI ship art. Enter ship names exactly as they appear in your inventory (e.g. <span className="text-amber-400">Aurora MR</span>, <span className="text-amber-400">400i</span>).
         </p>
         <div className="grid grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-xs text-gray-400 uppercase tracking-wide">From ship</span>
-            <input
-              type="text"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && generate()}
-              placeholder="e.g. Aurora MR"
-              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs text-gray-400 uppercase tracking-wide">To ship</span>
-            <input
-              type="text"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && generate()}
-              placeholder="e.g. 400i"
-              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
-            />
-          </label>
+          <ShipAutocomplete
+            label="From ship"
+            value={from}
+            onChange={setFrom}
+            ships={ships}
+            placeholder="e.g. Aurora MR"
+          />
+          <ShipAutocomplete
+            label="To ship"
+            value={to}
+            onChange={setTo}
+            ships={ships}
+            placeholder="e.g. 400i"
+          />
         </div>
         <button
           onClick={generate}
