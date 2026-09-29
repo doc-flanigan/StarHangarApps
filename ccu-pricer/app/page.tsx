@@ -25,7 +25,7 @@ interface CCUResult {
   error?: string;
 }
 
-type Tab = "web" | "local";
+type Tab = "web" | "local" | "thumbnail";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("web");
@@ -143,7 +143,7 @@ export default function Home() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-          {(["web", "local"] as Tab[]).map((t) => (
+          {(["web", "thumbnail", "local"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -153,7 +153,7 @@ export default function Home() {
                   : "text-gray-400 hover:text-gray-200"
               }`}
             >
-              {t === "web" ? "☁ Web Tool" : "⬇ Run Locally"}
+              {t === "web" ? "☁ Web Tool" : t === "thumbnail" ? "🖼 Thumbnail" : "⬇ Run Locally"}
             </button>
           ))}
         </div>
@@ -313,6 +313,9 @@ export default function Home() {
           </>
         )}
 
+        {/* ── Thumbnail tab ───────────────────────────────────────────────── */}
+        {tab === "thumbnail" && <ThumbnailTester />}
+
         {/* ── Local tab ───────────────────────────────────────────────────── */}
         {tab === "local" && (
           <div className="space-y-6">
@@ -401,6 +404,108 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+function ThumbnailTester() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function generate() {
+    if (!from.trim() || !to.trim()) return;
+    setLoading(true);
+    setErr("");
+    setPreviewUrl(null);
+    try {
+      const url = `/api/thumbnail?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        setErr(await res.text());
+        return;
+      }
+      const blob = await res.blob();
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function download() {
+    if (!previewUrl) return;
+    const a = document.createElement("a");
+    a.href = previewUrl;
+    a.download = `${from.trim()}-to-${to.trim()}.jpg`.replace(/\s+/g, "-");
+    a.click();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+        <p className="text-sm text-gray-400">
+          Generate a 1200×630 listing thumbnail using RSI ship art. Enter ship names exactly as they appear in your inventory (e.g. <span className="text-amber-400">Aurora MR</span>, <span className="text-amber-400">400i</span>).
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-xs text-gray-400 uppercase tracking-wide">From ship</span>
+            <input
+              type="text"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && generate()}
+              placeholder="e.g. Aurora MR"
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-400 uppercase tracking-wide">To ship</span>
+            <input
+              type="text"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && generate()}
+              placeholder="e.g. 400i"
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
+            />
+          </label>
+        </div>
+        <button
+          onClick={generate}
+          disabled={loading || !from.trim() || !to.trim()}
+          className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-semibold rounded-lg text-sm transition-colors"
+        >
+          {loading ? "Generating…" : "Generate Thumbnail"}
+        </button>
+      </div>
+
+      {err && (
+        <div className="bg-red-950 border border-red-800 text-red-300 rounded-xl p-4 text-sm">
+          {err}
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+            <span className="text-sm text-gray-300">
+              {from} <span className="text-amber-400">→</span> {to}
+            </span>
+            <button
+              onClick={download}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+            >
+              ⬇ Download
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewUrl} alt={`${from} → ${to}`} className="w-full" />
+        </div>
+      )}
+    </div>
   );
 }
 
