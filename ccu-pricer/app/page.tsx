@@ -420,8 +420,8 @@ function ThumbnailTester() {
     setErr("");
     setPreviewUrl(null);
     try {
-      const url = `/api/thumbnail?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}`;
-      const res = await fetch(url);
+      const url = `/api/thumbnail?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}&t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) {
         setErr(await res.text());
         return;
