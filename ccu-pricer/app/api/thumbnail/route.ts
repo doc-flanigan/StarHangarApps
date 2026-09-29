@@ -1,7 +1,23 @@
 import { NextRequest } from "next/server";
 import sharp, { type OverlayOptions } from "sharp";
+import fs from "fs";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+// Load fonts once at module init — bundled in public/fonts/ so always present
+function loadFont(name: string): string {
+  const p = path.join(process.cwd(), "public", "fonts", name);
+  return fs.readFileSync(p).toString("base64");
+}
+
+let fontRegularB64: string | null = null;
+let fontBoldB64: string | null = null;
+function getFonts() {
+  if (!fontRegularB64) fontRegularB64 = loadFont("inter-400.woff");
+  if (!fontBoldB64) fontBoldB64 = loadFont("inter-700.woff");
+  return { reg: fontRegularB64, bold: fontBoldB64 };
+}
 
 const W = 1200;
 const H = 630;
@@ -97,10 +113,23 @@ function buildOverlay(fromName: string, toName: string): Buffer {
   const cx = W / 2;
   const fromSafe = escapeXml(fromName);
   const toSafe = escapeXml(toName);
+  const { reg, bold } = getFonts();
 
   const svg = `
   <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
+      <style>
+        @font-face {
+          font-family: 'Inter';
+          font-weight: 400;
+          src: url('data:font/woff;base64,${reg}') format('woff');
+        }
+        @font-face {
+          font-family: 'Inter';
+          font-weight: 700;
+          src: url('data:font/woff;base64,${bold}') format('woff');
+        }
+      </style>
       <!-- Vignette on left ship -->
       <linearGradient id="lv" x1="0" x2="1" y1="0" y2="0">
         <stop offset="0%" stop-color="#08080f" stop-opacity="0.55"/>
@@ -132,32 +161,31 @@ function buildOverlay(fromName: string, toName: string): Buffer {
 
     <!-- Top label bar -->
     <rect x="0" y="0" width="${W}" height="52" fill="#08080f" fill-opacity="0.7"/>
-    <text x="${cx}" y="34" font-family="Arial, sans-serif" font-size="14"
-          font-weight="bold" letter-spacing="4" fill="#f59e0b"
+    <text x="${cx}" y="34" font-family="Inter" font-size="14"
+          font-weight="700" letter-spacing="4" fill="#f59e0b"
           text-anchor="middle">CROSS-CHASSIS UPGRADE</text>
 
     <!-- Center glow -->
     <ellipse cx="${cx}" cy="${H / 2}" rx="120" ry="120" fill="url(#glow)"/>
 
     <!-- Arrow -->
-    <text x="${cx}" y="${H / 2 + 22}" font-family="Arial, sans-serif" font-size="72"
-          font-weight="bold" fill="#f59e0b" text-anchor="middle">→</text>
+    <text x="${cx}" y="${H / 2 + 26}" font-family="Inter" font-size="72"
+          font-weight="700" fill="#f59e0b" text-anchor="middle">&#8594;</text>
 
     <!-- Ship name labels -->
-    <text x="280" y="${H - 80}" font-family="Arial, sans-serif" font-size="26"
-          font-weight="bold" fill="white" text-anchor="middle"
-          style="text-shadow: 0 2px 8px #000">${fromSafe}</text>
-    <text x="280" y="${H - 50}" font-family="Arial, sans-serif" font-size="13"
-          fill="#9ca3af" text-anchor="middle" letter-spacing="1">FROM</text>
+    <text x="280" y="${H - 80}" font-family="Inter" font-size="26"
+          font-weight="700" fill="white" text-anchor="middle">${fromSafe}</text>
+    <text x="280" y="${H - 50}" font-family="Inter" font-size="13"
+          font-weight="400" fill="#9ca3af" text-anchor="middle" letter-spacing="1">FROM</text>
 
-    <text x="${W - 280}" y="${H - 80}" font-family="Arial, sans-serif" font-size="26"
-          font-weight="bold" fill="white" text-anchor="middle">${toSafe}</text>
-    <text x="${W - 280}" y="${H - 50}" font-family="Arial, sans-serif" font-size="13"
-          fill="#9ca3af" text-anchor="middle" letter-spacing="1">TO</text>
+    <text x="${W - 280}" y="${H - 80}" font-family="Inter" font-size="26"
+          font-weight="700" fill="white" text-anchor="middle">${toSafe}</text>
+    <text x="${W - 280}" y="${H - 50}" font-family="Inter" font-size="13"
+          font-weight="400" fill="#9ca3af" text-anchor="middle" letter-spacing="1">TO</text>
 
     <!-- Watermark -->
-    <text x="${cx}" y="${H - 14}" font-family="Arial, sans-serif" font-size="12"
-          fill="#4b5563" text-anchor="middle">star-hangar.com</text>
+    <text x="${cx}" y="${H - 14}" font-family="Inter" font-size="12"
+          font-weight="400" fill="#4b5563" text-anchor="middle">star-hangar.com</text>
   </svg>`;
 
   return Buffer.from(svg);
