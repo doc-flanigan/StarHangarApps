@@ -45,25 +45,32 @@ async function getShipMatrix(): Promise<ShipEntry[]> {
   const res = await fetch("https://robertsspaceindustries.com/ship-matrix/index", {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; CCU-Pricer/1.0)" },
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error(`[thumbnail] ship matrix fetch failed: ${res.status}`);
+    return [];
+  }
 
   const data = await res.json();
-  matrixCache = ((data.data ?? []) as Record<string, unknown>[])
-    .map((ship) => {
-      const media = (ship.media as Record<string, unknown>[] | undefined)?.[0];
-      const images = media?.["images"] as Record<string, string> | undefined;
-      const rawUrl =
-        images?.["store_hub_large"] ??
-        images?.["store_large"] ??
-        images?.["store_small"] ??
-        null;
-      return {
-        name: ship["name"] as string,
-        imageUrl: rawUrl ? (rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl) : "",
-      };
-    })
-    .filter((s) => s.name && s.imageUrl);
+  const all = ((data.data ?? []) as Record<string, unknown>[]).map((ship) => {
+    const media = (ship.media as Record<string, unknown>[] | undefined)?.[0];
+    const images = media?.["images"] as Record<string, string> | undefined;
+    const rawUrl =
+      images?.["store_hub_large"] ??
+      images?.["store_large"] ??
+      images?.["store_small"] ??
+      null;
+    return {
+      name: ship["name"] as string,
+      imageUrl: rawUrl ? (rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl) : "",
+    };
+  });
 
+  console.log(`[thumbnail] matrix loaded: ${all.length} ships, ${all.filter(s => s.imageUrl).length} with images`);
+  // Log Aurora entries so we can see the exact names
+  const aurora = all.filter(s => s.name?.toLowerCase().includes("aurora"));
+  if (aurora.length) console.log(`[thumbnail] aurora ships:`, JSON.stringify(aurora.map(s => s.name)));
+
+  matrixCache = all.filter((s) => s.name && s.imageUrl);
   matrixExpiry = Date.now() + 3_600_000;
   return matrixCache!;
 }
@@ -85,13 +92,14 @@ function normalize(s: string): string {
 function findShip(matrix: ShipEntry[], query: string): ShipEntry | null {
   const q = normalize(query);
   const norm = matrix.map((s) => ({ ...s, _n: normalize(s.name) }));
-  return (
+  const result =
     norm.find((s) => s._n === q) ??
     norm.find((s) => s.name.toLowerCase() === query.toLowerCase().trim()) ??
     norm.find((s) => s._n.includes(q)) ??
     norm.find((s) => q.includes(s._n)) ??
-    null
-  );
+    null;
+  console.log(`[thumbnail] findShip("${query}") → norm="${q}" → ${result ? result.name : "NOT FOUND"}`);
+  return result;
 }
 
 // ── Image fetch → data URI ────────────────────────────────────────────────────
@@ -184,7 +192,7 @@ export async function GET(req: NextRequest) {
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#f59e0b", fontSize: 28, fontWeight: 700, letterSpacing: 8 }}>
+        <span style={{ color: "#f59e0b", fontSize: 48, fontWeight: 700, letterSpacing: 8 }}>
           CROSS-CHASSIS UPGRADE
         </span>
       </div>
@@ -230,8 +238,8 @@ export async function GET(req: NextRequest) {
           width: SHIP_W,
         }}
       >
-        <span style={{ color: "white", fontSize: 52, fontWeight: 700 }}>{fromShip}</span>
-        <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 4, marginTop: 6 }}>FROM</span>
+        <span style={{ color: "white", fontSize: 90, fontWeight: 700 }}>{fromShip}</span>
+        <span style={{ color: "#9ca3af", fontSize: 36, letterSpacing: 6, marginTop: 8 }}>FROM</span>
       </div>
 
       {/* Right ship label */}
@@ -246,8 +254,8 @@ export async function GET(req: NextRequest) {
           width: SHIP_W,
         }}
       >
-        <span style={{ color: "white", fontSize: 52, fontWeight: 700 }}>{toShip}</span>
-        <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 4, marginTop: 6 }}>TO</span>
+        <span style={{ color: "white", fontSize: 90, fontWeight: 700 }}>{toShip}</span>
+        <span style={{ color: "#9ca3af", fontSize: 36, letterSpacing: 6, marginTop: 8 }}>TO</span>
       </div>
 
       {/* Watermark */}
@@ -261,7 +269,7 @@ export async function GET(req: NextRequest) {
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#4b5563", fontSize: 20 }}>star-hangar.com</span>
+        <span style={{ color: "#4b5563", fontSize: 24 }}>star-hangar.com</span>
       </div>
     </div>
   );
