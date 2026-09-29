@@ -7,10 +7,9 @@ export const dynamic = "force-dynamic";
 
 const W = 1200;
 const H = 630;
-const SHIP_W = 500;
-const SHIP_H = 310;   // shorter so labels sit below with room to breathe
-const SHIP_TOP = 80;  // below the header bar
-const FOOTER_H = 160; // solid footer for labels
+const SHIP_W = 540;
+const SHIP_H = 550;
+const SHIP_TOP = 80;
 
 // ── Fonts ─────────────────────────────────────────────────────────────────────
 
@@ -172,10 +171,10 @@ export async function GET(req: NextRequest) {
       }}
     >
       {/* Ship images */}
-      <div style={{ display: "flex", position: "absolute", left: 40, top: SHIP_TOP }}>
+      <div style={{ display: "flex", position: "absolute", left: 30, top: SHIP_TOP }}>
         <ShipSlot src={fromDataUri} label={fromShip} />
       </div>
-      <div style={{ display: "flex", position: "absolute", right: 40, top: SHIP_TOP }}>
+      <div style={{ display: "flex", position: "absolute", right: 30, top: SHIP_TOP }}>
         <ShipSlot src={toDataUri_} label={toShip} />
       </div>
 
@@ -188,92 +187,92 @@ export async function GET(req: NextRequest) {
           left: 0,
           right: 0,
           height: 80,
-          background: "rgba(8,8,15,0.75)",
+          background: "rgba(8,8,15,0.82)",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#f59e0b", fontSize: 48, fontWeight: 700, letterSpacing: 8 }}>
+        <span style={{ color: "#f59e0b", fontSize: 44, fontWeight: 700, letterSpacing: 8 }}>
           CROSS-CHASSIS UPGRADE
         </span>
       </div>
 
-      {/* Solid footer strip — labels always sit below the ship art */}
+      {/* Gradient scrim over bottom of left ship */}
       <div
         style={{
           display: "flex",
           position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: FOOTER_H,
-          background: "#080c18",
-          alignItems: "center",
-        }}
-      >
-        {/* Left label */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            width: SHIP_W + 40,
-            paddingLeft: 40,
-          }}
-        >
-          <span style={{ color: "white", fontSize: 62, fontWeight: 700, whiteSpace: "nowrap" }}>
-            {fromShip}
-          </span>
-          <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 6, marginTop: 6 }}>FROM</span>
-        </div>
-
-        {/* Spacer (arrow area) */}
-        <div style={{ display: "flex", flex: 1 }} />
-
-        {/* Right label */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            width: SHIP_W + 40,
-            paddingRight: 40,
-          }}
-        >
-          <span style={{ color: "white", fontSize: 62, fontWeight: 700, whiteSpace: "nowrap" }}>
-            {toShip}
-          </span>
-          <span style={{ color: "#9ca3af", fontSize: 26, letterSpacing: 6, marginTop: 6 }}>TO</span>
-        </div>
-      </div>
-
-      {/* Gradient fade from ship art into the footer */}
-      <div
-        style={{
-          display: "flex",
-          position: "absolute",
-          bottom: FOOTER_H,
-          left: 0,
-          right: 0,
-          height: 80,
-          background: "linear-gradient(to bottom, rgba(8,12,24,0) 0%, rgba(8,12,24,1) 100%)",
+          left: 30,
+          top: SHIP_TOP + SHIP_H - 160,
+          width: SHIP_W,
+          height: 160,
+          background: "linear-gradient(to bottom, rgba(8,12,24,0) 0%, rgba(8,12,24,0.88) 100%)",
         }}
       />
 
-      {/* Center arrow — sits above the footer */}
+      {/* Gradient scrim over bottom of right ship */}
       <div
         style={{
           display: "flex",
           position: "absolute",
-          left: W / 2 - 70,
-          top: SHIP_TOP + SHIP_H / 2 - 70,
-          width: 140,
-          height: 140,
+          right: 30,
+          top: SHIP_TOP + SHIP_H - 160,
+          width: SHIP_W,
+          height: 160,
+          background: "linear-gradient(to bottom, rgba(8,12,24,0) 0%, rgba(8,12,24,0.88) 100%)",
+        }}
+      />
+
+      {/* Left ship label — overlaid on image */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          position: "absolute",
+          left: 30,
+          top: SHIP_TOP + SHIP_H - 110,
+          width: SHIP_W,
+          alignItems: "center",
+        }}
+      >
+        <span style={{ color: "#9ca3af", fontSize: 22, letterSpacing: 6 }}>FROM</span>
+        <span style={{ color: "white", fontSize: 54, fontWeight: 700, whiteSpace: "nowrap", marginTop: 4 }}>
+          {fromShip}
+        </span>
+      </div>
+
+      {/* Right ship label — overlaid on image */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          position: "absolute",
+          right: 30,
+          top: SHIP_TOP + SHIP_H - 110,
+          width: SHIP_W,
+          alignItems: "center",
+        }}
+      >
+        <span style={{ color: "#9ca3af", fontSize: 22, letterSpacing: 6 }}>TO</span>
+        <span style={{ color: "white", fontSize: 54, fontWeight: 700, whiteSpace: "nowrap", marginTop: 4 }}>
+          {toShip}
+        </span>
+      </div>
+
+      {/* Center arrow */}
+      <div
+        style={{
+          display: "flex",
+          position: "absolute",
+          left: W / 2 - 60,
+          top: SHIP_TOP + SHIP_H / 2 - 60,
+          width: 120,
+          height: 120,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#f59e0b", fontSize: 120, fontWeight: 700, lineHeight: 1 }}>→</span>
+        <span style={{ color: "#f59e0b", fontSize: 100, fontWeight: 700, lineHeight: 1 }}>→</span>
       </div>
 
       {/* Watermark */}
@@ -281,13 +280,13 @@ export async function GET(req: NextRequest) {
         style={{
           display: "flex",
           position: "absolute",
-          bottom: 12,
+          bottom: 10,
           left: 0,
           right: 0,
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#374151", fontSize: 22 }}>star-hangar.com</span>
+        <span style={{ color: "#374151", fontSize: 20 }}>star-hangar.com</span>
       </div>
     </div>
   );
