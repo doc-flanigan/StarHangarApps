@@ -286,7 +286,7 @@ export async function GET(req: NextRequest) {
           justifyContent: "center",
         }}
       >
-        <span style={{ color: "#374151", fontSize: 20 }}>star-hangar.com</span>
+        <span style={{ color: "#374151", fontSize: 20 }}>Doc&apos;s Ship Shop</span>
       </div>
     </div>
   );
