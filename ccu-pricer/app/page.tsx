@@ -269,6 +269,23 @@ export default function Home() {
               </div>
             )}
 
+            {/* Thumbnails */}
+            {results.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-800">
+                  <h2 className="font-semibold text-gray-200">Listing Thumbnails</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    1200×630 JPEGs using RSI ship art — ready to upload to StarHangar.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+                  {results.map((r, i) => (
+                    <ThumbnailCard key={i} fromShip={r.fromShip} toShip={r.toShip} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Pricing report */}
             {report && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
@@ -384,6 +401,46 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+function ThumbnailCard({ fromShip, toShip }: { fromShip: string; toShip: string }) {
+  const url = `/api/thumbnail?from=${encodeURIComponent(fromShip)}&to=${encodeURIComponent(toShip)}`;
+  const filename = `${fromShip}-to-${toShip}.jpg`.replace(/\s+/g, "-");
+
+  async function download() {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-gray-700 bg-gray-800/40 group">
+      {/* Preview — lazy loads on first render */}
+      <div className="relative aspect-[1200/630] bg-gray-800">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={`${fromShip} → ${toShip}`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      </div>
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-xs text-gray-400 truncate">
+          {fromShip} <span className="text-amber-400">→</span> {toShip}
+        </span>
+        <button
+          onClick={download}
+          className="shrink-0 ml-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+        >
+          ⬇ Download
+        </button>
+      </div>
+    </div>
   );
 }
 
