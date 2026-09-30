@@ -235,6 +235,8 @@ export async function POST(req: NextRequest) {
               listingCount: listings.length,
               minPrice: prices.length ? Math.min(...prices) : null,
               maxPrice: prices.length ? Math.max(...prices) : null,
+              quantity: item.countOwned,
+              insurance: item.insurance,
             });
           } catch (err) {
             send({

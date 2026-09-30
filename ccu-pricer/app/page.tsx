@@ -11,6 +11,8 @@ interface StreamEvent {
   listingCount?: number;
   minPrice?: number | null;
   maxPrice?: number | null;
+  quantity?: number;
+  insurance?: string;
   error?: string;
   report?: string;
   message?: string;
@@ -22,6 +24,8 @@ interface CCUResult {
   listingCount: number;
   minPrice: number | null;
   maxPrice: number | null;
+  quantity: number;
+  insurance: string;
   error?: string;
 }
 
@@ -97,6 +101,8 @@ export default function Home() {
                 listingCount: event.listingCount ?? 0,
                 minPrice: event.minPrice ?? null,
                 maxPrice: event.maxPrice ?? null,
+                quantity: event.quantity ?? 1,
+                insurance: event.insurance ?? "",
                 error: event.error,
               },
             ]);
@@ -312,6 +318,11 @@ export default function Home() {
               </div>
             )}
 
+            {/* Post Listings */}
+            {results.length > 0 && (
+              <PostListings results={results} />
+            )}
+
             {/* Pricing report */}
             {report && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
@@ -430,6 +441,220 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+interface PostEvent {
+  type: "start" | "posting" | "posted" | "failed" | "done" | "fatal";
+  total?: number;
+  index?: number;
+  fromShip?: string;
+  toShip?: string;
+  error?: string;
+  message?: string;
+}
+
+interface PostRow {
+  fromShip: string;
+  toShip: string;
+  price: string;
+  quantity: number;
+  insurance: string;
+  include: boolean;
+  status: "idle" | "posting" | "posted" | "failed";
+  error?: string;
+}
+
+function PostListings({ results }: { results: CCUResult[] }) {
+  const [rows, setRows] = useState<PostRow[]>(() =>
+    results
+      .filter((r) => !r.error)
+      .map((r) => ({
+        fromShip: r.fromShip,
+        toShip: r.toShip,
+        price: r.minPrice != null ? String(r.minPrice) : "",
+        quantity: r.quantity || 1,
+        insurance: r.insurance || "",
+        include: true,
+        status: "idle",
+      }))
+  );
+  const [posting, setPosting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [fatalError, setFatalError] = useState("");
+
+  function updateRow(i: number, patch: Partial<PostRow>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  async function startPosting() {
+    const toPost = rows.filter((r) => r.include && r.price);
+    if (!toPost.length) return;
+    setPosting(true);
+    setDone(false);
+    setFatalError("");
+
+    const res = await fetch("/api/post-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listings: toPost.map((r) => ({
+          fromShip: r.fromShip,
+          toShip: r.toShip,
+          price: parseFloat(r.price),
+          quantity: r.quantity,
+          insurance: r.insurance,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      setFatalError(await res.text());
+      setPosting(false);
+      return;
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // Map from original row index by fromShip+toShip
+    const rowIndex = (fromShip: string, toShip: string) =>
+      rows.findIndex((r) => r.fromShip === fromShip && r.toShip === toShip);
+
+    while (true) {
+      const { done: streamDone, value } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const ev: PostEvent = JSON.parse(line.slice(6));
+        if (ev.type === "posting") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posting" });
+        } else if (ev.type === "posted") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posted" });
+        } else if (ev.type === "failed") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "failed", error: ev.error });
+        } else if (ev.type === "done") {
+          setDone(true);
+        } else if (ev.type === "fatal") {
+          setFatalError(ev.message ?? "Unknown error");
+        }
+      }
+    }
+    setPosting(false);
+  }
+
+  const includedCount = rows.filter((r) => r.include && r.price).length;
+
+  return (
+    <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-800">
+        <h2 className="font-semibold text-gray-200">Post Listings to Star Hangar</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Requires local Chrome with{" "}
+          <code className="text-amber-400">--remote-debugging-port=9222</code> and{" "}
+          <code className="text-amber-400">npm run dev</code> running locally.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-500 uppercase bg-gray-800/50">
+              <th className="px-3 py-2 text-center w-8">
+                <input
+                  type="checkbox"
+                  checked={rows.every((r) => r.include)}
+                  onChange={(e) => setRows((prev) => prev.map((r) => ({ ...r, include: e.target.checked })))}
+                  className="accent-amber-500"
+                />
+              </th>
+              <th className="px-3 py-2 text-left">From</th>
+              <th className="px-3 py-2 text-left">To</th>
+              <th className="px-3 py-2 text-right w-28">Price ($)</th>
+              <th className="px-3 py-2 text-right w-20">Qty</th>
+              <th className="px-3 py-2 text-left">Insurance</th>
+              <th className="px-3 py-2 text-center w-24">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800">
+            {rows.map((row, i) => (
+              <tr key={i} className={`hover:bg-gray-800/30 ${!row.include ? "opacity-40" : ""}`}>
+                <td className="px-3 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={row.include}
+                    onChange={(e) => updateRow(i, { include: e.target.checked })}
+                    disabled={posting}
+                    className="accent-amber-500"
+                  />
+                </td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.fromShip}</td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.toShip}</td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.price}
+                    onChange={(e) => updateRow(i, { price: e.target.value })}
+                    disabled={posting}
+                    placeholder="0.00"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.quantity}
+                    onChange={(e) => updateRow(i, { quantity: parseInt(e.target.value) || 1 })}
+                    disabled={posting}
+                    min={1}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    value={row.insurance}
+                    onChange={(e) => updateRow(i, { insurance: e.target.value })}
+                    disabled={posting}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {row.status === "idle" && <span className="text-gray-600 text-xs">—</span>}
+                  {row.status === "posting" && <span className="text-amber-400 text-xs animate-pulse">Posting…</span>}
+                  {row.status === "posted" && <span className="text-green-400 text-xs">✓ Posted</span>}
+                  {row.status === "failed" && (
+                    <span className="text-red-400 text-xs" title={row.error}>✗ Failed</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-3 border-t border-gray-800 flex items-center gap-3">
+        <button
+          onClick={startPosting}
+          disabled={posting || includedCount === 0}
+          className="px-5 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-sm transition-colors"
+        >
+          {posting ? "Posting…" : `Post ${includedCount} Listing${includedCount !== 1 ? "s" : ""}`}
+        </button>
+        {done && <span className="text-green-400 text-sm">All done!</span>}
+        {fatalError && (
+          <span className="text-red-400 text-xs">{fatalError}</span>
+        )}
+      </div>
+    </div>
   );
 }
 
