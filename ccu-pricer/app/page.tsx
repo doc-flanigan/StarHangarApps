@@ -225,8 +225,31 @@ export default function Home() {
             {/* Live results table */}
             {results.length > 0 && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-800">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
                   <h2 className="font-semibold text-gray-200">Market Data — Live Results</h2>
+                  <button
+                    onClick={() => {
+                      const rows = [
+                        ["From", "To", "Listings", "Min Price", "Max Price"],
+                        ...results.map((r) => [
+                          r.fromShip,
+                          r.toShip,
+                          String(r.listingCount),
+                          r.minPrice != null ? String(r.minPrice) : "",
+                          r.maxPrice != null ? String(r.maxPrice) : "",
+                        ]),
+                      ];
+                      const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+                      const blob = new Blob([csv], { type: "text/csv" });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = "market_data.csv";
+                      a.click();
+                    }}
+                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
+                  >
+                    Download CSV
+                  </button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
