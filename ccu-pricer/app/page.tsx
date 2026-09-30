@@ -227,29 +227,32 @@ export default function Home() {
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
                   <h2 className="font-semibold text-gray-200">Market Data — Live Results</h2>
-                  <button
-                    onClick={() => {
-                      const rows = [
-                        ["From", "To", "Listings", "Min Price", "Max Price"],
-                        ...results.map((r) => [
-                          r.fromShip,
-                          r.toShip,
-                          String(r.listingCount),
-                          r.minPrice != null ? String(r.minPrice) : "",
-                          r.maxPrice != null ? String(r.maxPrice) : "",
-                        ]),
-                      ];
-                      const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
-                      const blob = new Blob([csv], { type: "text/csv" });
-                      const a = document.createElement("a");
-                      a.href = URL.createObjectURL(blob);
-                      a.download = "market_data.csv";
-                      a.click();
-                    }}
-                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
-                  >
-                    Download CSV
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const rows = [
+                          ["From", "To", "Listings", "Min Price", "Max Price"],
+                          ...results.map((r) => [
+                            r.fromShip,
+                            r.toShip,
+                            String(r.listingCount),
+                            r.minPrice != null ? String(r.minPrice) : "",
+                            r.maxPrice != null ? String(r.maxPrice) : "",
+                          ]),
+                        ];
+                        const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+                        const blob = new Blob([csv], { type: "text/csv" });
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = "market_data.csv";
+                        a.click();
+                      }}
+                      className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
+                    >
+                      Download CSV
+                    </button>
+                    <DownloadAllImagesButton results={results} />
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -427,6 +430,46 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+function DownloadAllImagesButton({ results }: { results: CCUResult[] }) {
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  async function downloadAll() {
+    setDownloading(true);
+    setProgress(0);
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      try {
+        const url = `/api/thumbnail?from=${encodeURIComponent(r.fromShip)}&to=${encodeURIComponent(r.toShip)}&t=${Date.now()}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) {
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${r.fromShip}-to-${r.toShip}.png`.replace(/\s+/g, "-");
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      } catch {
+        // skip failed images
+      }
+      setProgress(i + 1);
+      await new Promise((res) => setTimeout(res, 300));
+    }
+    setDownloading(false);
+  }
+
+  return (
+    <button
+      onClick={downloadAll}
+      disabled={downloading}
+      className="text-xs px-3 py-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
+    >
+      {downloading ? `Downloading… ${progress}/${results.length}` : "⬇ Download All Images"}
+    </button>
   );
 }
 
