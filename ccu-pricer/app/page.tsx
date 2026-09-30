@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface StreamEvent {
   type: "start" | "searching" | "result" | "analyzing" | "done" | "error";
@@ -11,6 +11,8 @@ interface StreamEvent {
   listingCount?: number;
   minPrice?: number | null;
   maxPrice?: number | null;
+  quantity?: number;
+  insurance?: string;
   error?: string;
   report?: string;
   message?: string;
@@ -22,10 +24,12 @@ interface CCUResult {
   listingCount: number;
   minPrice: number | null;
   maxPrice: number | null;
+  quantity: number;
+  insurance: string;
   error?: string;
 }
 
-type Tab = "web" | "local";
+type Tab = "web" | "local" | "thumbnail";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("web");
@@ -97,6 +101,8 @@ export default function Home() {
                 listingCount: event.listingCount ?? 0,
                 minPrice: event.minPrice ?? null,
                 maxPrice: event.maxPrice ?? null,
+                quantity: event.quantity ?? 1,
+                insurance: event.insurance ?? "",
                 error: event.error,
               },
             ]);
@@ -143,7 +149,7 @@ export default function Home() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-          {(["web", "local"] as Tab[]).map((t) => (
+          {(["web", "thumbnail", "local"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -153,7 +159,7 @@ export default function Home() {
                   : "text-gray-400 hover:text-gray-200"
               }`}
             >
-              {t === "web" ? "☁ Web Tool" : "⬇ Run Locally"}
+              {t === "web" ? "☁ Web Tool" : t === "thumbnail" ? "🖼 Thumbnail" : "⬇ Run Locally"}
             </button>
           ))}
         </div>
@@ -225,8 +231,34 @@ export default function Home() {
             {/* Live results table */}
             {results.length > 0 && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-800">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
                   <h2 className="font-semibold text-gray-200">Market Data — Live Results</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const rows = [
+                          ["From", "To", "Listings", "Min Price", "Max Price"],
+                          ...results.map((r) => [
+                            r.fromShip,
+                            r.toShip,
+                            String(r.listingCount),
+                            r.minPrice != null ? String(r.minPrice) : "",
+                            r.maxPrice != null ? String(r.maxPrice) : "",
+                          ]),
+                        ];
+                        const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+                        const blob = new Blob([csv], { type: "text/csv" });
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = "market_data.csv";
+                        a.click();
+                      }}
+                      className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
+                    >
+                      Download CSV
+                    </button>
+                    <DownloadAllImagesButton results={results} />
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -269,6 +301,28 @@ export default function Home() {
               </div>
             )}
 
+            {/* Thumbnails */}
+            {results.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-800">
+                  <h2 className="font-semibold text-gray-200">Listing Thumbnails</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    1200×630 JPEGs using RSI ship art — ready to upload to StarHangar.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+                  {results.map((r, i) => (
+                    <ThumbnailCard key={i} fromShip={r.fromShip} toShip={r.toShip} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Post Listings */}
+            {results.length > 0 && (
+              <PostListings results={results} />
+            )}
+
             {/* Pricing report */}
             {report && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
@@ -295,6 +349,9 @@ export default function Home() {
             )}
           </>
         )}
+
+        {/* ── Thumbnail tab ───────────────────────────────────────────────── */}
+        {tab === "thumbnail" && <ThumbnailTester />}
 
         {/* ── Local tab ───────────────────────────────────────────────────── */}
         {tab === "local" && (
@@ -384,6 +441,454 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+interface PostEvent {
+  type: "start" | "posting" | "posted" | "failed" | "done" | "fatal";
+  total?: number;
+  index?: number;
+  fromShip?: string;
+  toShip?: string;
+  error?: string;
+  message?: string;
+}
+
+interface PostRow {
+  fromShip: string;
+  toShip: string;
+  price: string;
+  quantity: number;
+  insurance: string;
+  include: boolean;
+  status: "idle" | "posting" | "posted" | "failed";
+  error?: string;
+}
+
+function PostListings({ results }: { results: CCUResult[] }) {
+  const [rows, setRows] = useState<PostRow[]>(() =>
+    results
+      .filter((r) => !r.error)
+      .map((r) => ({
+        fromShip: r.fromShip,
+        toShip: r.toShip,
+        price: r.minPrice != null ? String(r.minPrice) : "",
+        quantity: r.quantity || 1,
+        insurance: r.insurance || "",
+        include: true,
+        status: "idle",
+      }))
+  );
+  const [posting, setPosting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [fatalError, setFatalError] = useState("");
+
+  function updateRow(i: number, patch: Partial<PostRow>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  async function startPosting() {
+    const toPost = rows.filter((r) => r.include && r.price);
+    if (!toPost.length) return;
+    setPosting(true);
+    setDone(false);
+    setFatalError("");
+
+    const res = await fetch("/api/post-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listings: toPost.map((r) => ({
+          fromShip: r.fromShip,
+          toShip: r.toShip,
+          price: parseFloat(r.price),
+          quantity: r.quantity,
+          insurance: r.insurance,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      setFatalError(await res.text());
+      setPosting(false);
+      return;
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // Map from original row index by fromShip+toShip
+    const rowIndex = (fromShip: string, toShip: string) =>
+      rows.findIndex((r) => r.fromShip === fromShip && r.toShip === toShip);
+
+    while (true) {
+      const { done: streamDone, value } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const ev: PostEvent = JSON.parse(line.slice(6));
+        if (ev.type === "posting") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posting" });
+        } else if (ev.type === "posted") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posted" });
+        } else if (ev.type === "failed") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "failed", error: ev.error });
+        } else if (ev.type === "done") {
+          setDone(true);
+        } else if (ev.type === "fatal") {
+          setFatalError(ev.message ?? "Unknown error");
+        }
+      }
+    }
+    setPosting(false);
+  }
+
+  const includedCount = rows.filter((r) => r.include && r.price).length;
+
+  return (
+    <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-800">
+        <h2 className="font-semibold text-gray-200">Post Listings to Star Hangar</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Requires local Chrome with{" "}
+          <code className="text-amber-400">--remote-debugging-port=9222</code> and{" "}
+          <code className="text-amber-400">npm run dev</code> running locally.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-500 uppercase bg-gray-800/50">
+              <th className="px-3 py-2 text-center w-8">
+                <input
+                  type="checkbox"
+                  checked={rows.every((r) => r.include)}
+                  onChange={(e) => setRows((prev) => prev.map((r) => ({ ...r, include: e.target.checked })))}
+                  className="accent-amber-500"
+                />
+              </th>
+              <th className="px-3 py-2 text-left">From</th>
+              <th className="px-3 py-2 text-left">To</th>
+              <th className="px-3 py-2 text-right w-28">Price ($)</th>
+              <th className="px-3 py-2 text-right w-20">Qty</th>
+              <th className="px-3 py-2 text-left">Insurance</th>
+              <th className="px-3 py-2 text-center w-24">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800">
+            {rows.map((row, i) => (
+              <tr key={i} className={`hover:bg-gray-800/30 ${!row.include ? "opacity-40" : ""}`}>
+                <td className="px-3 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={row.include}
+                    onChange={(e) => updateRow(i, { include: e.target.checked })}
+                    disabled={posting}
+                    className="accent-amber-500"
+                  />
+                </td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.fromShip}</td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.toShip}</td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.price}
+                    onChange={(e) => updateRow(i, { price: e.target.value })}
+                    disabled={posting}
+                    placeholder="0.00"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.quantity}
+                    onChange={(e) => updateRow(i, { quantity: parseInt(e.target.value) || 1 })}
+                    disabled={posting}
+                    min={1}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    value={row.insurance}
+                    onChange={(e) => updateRow(i, { insurance: e.target.value })}
+                    disabled={posting}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {row.status === "idle" && <span className="text-gray-600 text-xs">—</span>}
+                  {row.status === "posting" && <span className="text-amber-400 text-xs animate-pulse">Posting…</span>}
+                  {row.status === "posted" && <span className="text-green-400 text-xs">✓ Posted</span>}
+                  {row.status === "failed" && (
+                    <span className="text-red-400 text-xs" title={row.error}>✗ Failed</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-3 border-t border-gray-800 flex items-center gap-3">
+        <button
+          onClick={startPosting}
+          disabled={posting || includedCount === 0}
+          className="px-5 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-sm transition-colors"
+        >
+          {posting ? "Posting…" : `Post ${includedCount} Listing${includedCount !== 1 ? "s" : ""}`}
+        </button>
+        {done && <span className="text-green-400 text-sm">All done!</span>}
+        {fatalError && (
+          <span className="text-red-400 text-xs">{fatalError}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DownloadAllImagesButton({ results }: { results: CCUResult[] }) {
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  async function downloadAll() {
+    setDownloading(true);
+    setProgress(0);
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      try {
+        const url = `/api/thumbnail?from=${encodeURIComponent(r.fromShip)}&to=${encodeURIComponent(r.toShip)}&t=${Date.now()}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) {
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${r.fromShip}-to-${r.toShip}.png`.replace(/\s+/g, "-");
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      } catch {
+        // skip failed images
+      }
+      setProgress(i + 1);
+      await new Promise((res) => setTimeout(res, 300));
+    }
+    setDownloading(false);
+  }
+
+  return (
+    <button
+      onClick={downloadAll}
+      disabled={downloading}
+      className="text-xs px-3 py-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
+    >
+      {downloading ? `Downloading… ${progress}/${results.length}` : "⬇ Download All Images"}
+    </button>
+  );
+}
+
+function ShipAutocomplete({
+  label,
+  value,
+  onChange,
+  ships,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  ships: string[];
+  placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  const filtered = value.length > 0
+    ? ships.filter((s) => s.toLowerCase().includes(value.toLowerCase())).slice(0, 10)
+    : [];
+  const showDropdown = focused && filtered.length > 0;
+
+  return (
+    <div className="relative">
+      <label className="block">
+        <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+        <input
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
+        />
+      </label>
+      {showDropdown && (
+        <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+          {filtered.map((ship) => (
+            <button
+              key={ship}
+              onMouseDown={() => { onChange(ship); setFocused(false); }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-amber-600/20 hover:text-amber-300 transition-colors border-b border-gray-700/50 last:border-0"
+            >
+              {ship}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThumbnailTester() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [ships, setShips] = useState<string[]>([]);
+
+  // Fetch ship list once on mount
+  useEffect(() => {
+    fetch("/api/ships")
+      .then((r) => r.json())
+      .then((d) => setShips(d.ships ?? []))
+      .catch(() => {});
+  }, []);
+
+  async function generate() {
+    if (!from.trim() || !to.trim()) return;
+    setLoading(true);
+    setErr("");
+    setPreviewUrl(null);
+    try {
+      const url = `/api/thumbnail?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}&t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        setErr(await res.text());
+        return;
+      }
+      const blob = await res.blob();
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function download() {
+    if (!previewUrl) return;
+    const a = document.createElement("a");
+    a.href = previewUrl;
+    a.download = `${from.trim()}-to-${to.trim()}.jpg`.replace(/\s+/g, "-");
+    a.click();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+        <p className="text-sm text-gray-400">
+          Generate a 1200×630 listing thumbnail using RSI ship art. Enter ship names exactly as they appear in your inventory (e.g. <span className="text-amber-400">Aurora MR</span>, <span className="text-amber-400">400i</span>).
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <ShipAutocomplete
+            label="From ship"
+            value={from}
+            onChange={setFrom}
+            ships={ships}
+            placeholder="e.g. Aurora MR"
+          />
+          <ShipAutocomplete
+            label="To ship"
+            value={to}
+            onChange={setTo}
+            ships={ships}
+            placeholder="e.g. 400i"
+          />
+        </div>
+        <button
+          onClick={generate}
+          disabled={loading || !from.trim() || !to.trim()}
+          className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-semibold rounded-lg text-sm transition-colors"
+        >
+          {loading ? "Generating…" : "Generate Thumbnail"}
+        </button>
+      </div>
+
+      {err && (
+        <div className="bg-red-950 border border-red-800 text-red-300 rounded-xl p-4 text-sm">
+          {err}
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+            <span className="text-sm text-gray-300">
+              {from} <span className="text-amber-400">→</span> {to}
+            </span>
+            <button
+              onClick={download}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+            >
+              ⬇ Download
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewUrl} alt={`${from} → ${to}`} className="w-full" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThumbnailCard({ fromShip, toShip }: { fromShip: string; toShip: string }) {
+  const url = `/api/thumbnail?from=${encodeURIComponent(fromShip)}&to=${encodeURIComponent(toShip)}`;
+  const filename = `${fromShip}-to-${toShip}.jpg`.replace(/\s+/g, "-");
+
+  async function download() {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-gray-700 bg-gray-800/40 group">
+      {/* Preview — lazy loads on first render */}
+      <div className="relative aspect-[1200/630] bg-gray-800">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={`${fromShip} → ${toShip}`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      </div>
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-xs text-gray-400 truncate">
+          {fromShip} <span className="text-amber-400">→</span> {toShip}
+        </span>
+        <button
+          onClick={download}
+          className="shrink-0 ml-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+        >
+          ⬇ Download
+        </button>
+      </div>
+    </div>
   );
 }
 

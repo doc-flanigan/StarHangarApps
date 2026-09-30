@@ -69,73 +69,51 @@ function aggregateInventory(rows: CCURow[]): CCUItem[] {
 
 // ── StarHangar scraper via Browserless ───────────────────────────────────────
 
-async function scrapeListings(
-  browserlessKey: string,
+import type { Page } from "playwright-core";
+
+async function scrapeWithPage(
+  page: Page,
   fromShip: string,
   toShip: string
 ): Promise<{ price: number; insurance?: string; note?: string }[]> {
-  const host = process.env.BROWSERLESS_HOST ?? "production-sfo.browserless.io";
-  const wsEndpoint = `wss://${host}?token=${browserlessKey}`;
+  const searchTerm = encodeURIComponent(`${fromShip} to ${toShip}`);
+  await page.goto(
+    `https://star-hangar.com/catalogsearch/result/?q=${searchTerm}`,
+    { waitUntil: "domcontentloaded", timeout: 25000 }
+  );
+  await page.waitForTimeout(1000);
 
-  const browser = await chromium.connectOverCDP(wsEndpoint);
-  try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
+  const resultCount = await page.evaluate(() => {
+    const el = document.querySelector(".toolbar-amount, .search.results .subtitle");
+    return el?.textContent?.trim() ?? null;
+  });
+  console.log(`[scrape] ${fromShip} → ${toShip}: ${resultCount}`);
 
-    // Search StarHangar for this CCU — Magento search URL
-    const searchTerm = encodeURIComponent(`${fromShip} to ${toShip}`);
-    await page.goto(
-      `https://star-hangar.com/catalogsearch/result/?q=${searchTerm}`,
-      { waitUntil: "domcontentloaded", timeout: 30000 }
-    );
-    await page.waitForTimeout(2000);
-
-    // Check result count from Magento toolbar
-    const resultCount = await page.evaluate(() => {
-      const el = document.querySelector(".toolbar-amount, .search.results .subtitle");
-      return el?.textContent?.trim() ?? null;
+  const listings = await page.evaluate(() => {
+    const results: { price: number; title: string }[] = [];
+    const products = document.querySelectorAll(".product-item, .product-items .item");
+    products.forEach((el) => {
+      const titleEl = el.querySelector(".product-item-name, .product-name");
+      const priceEl = el.querySelector(".price-box .price, .price");
+      if (!priceEl) return;
+      const priceText = priceEl.textContent ?? "";
+      const match = priceText.match(/[\d,]+\.?\d*/);
+      if (!match) return;
+      const price = parseFloat(match[0].replace(/,/g, ""));
+      if (price > 0) {
+        results.push({ price, title: titleEl?.textContent?.trim() ?? "" });
+      }
     });
-    console.log(`[scrape] ${fromShip} → ${toShip}: ${resultCount}`);
-
-    // Extract listings — Magento product list selectors
-    const listings = await page.evaluate(() => {
-      const results: { price: number; title: string }[] = [];
-
-      const products = document.querySelectorAll(".product-item, .product-items .item");
-      products.forEach((el) => {
-        const titleEl = el.querySelector(".product-item-name, .product-name");
-        const priceEl = el.querySelector(".price-box .price, .price");
-        if (!priceEl) return;
-
-        const priceText = priceEl.textContent ?? "";
-        const match = priceText.match(/[\d,]+\.?\d*/);
-        if (!match) return;
-
-        const price = parseFloat(match[0].replace(/,/g, ""));
-        if (price > 0) {
-          results.push({ price, title: titleEl?.textContent?.trim() ?? "" });
-        }
-      });
-
-      // Deduplicate by title+price
-      const seen = new Set<string>();
-      return results.filter(({ price, title }) => {
-        const key = `${title}|${price}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    const seen = new Set<string>();
+    return results.filter(({ price, title }) => {
+      const key = `${title}|${price}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
+  });
 
-    await context.close();
-
-    return listings.map(({ price, title }) => ({
-      price,
-      note: title,
-    }));
-  } finally {
-    await browser.close();
-  }
+  return listings.map(({ price, title }) => ({ price, note: title }));
 }
 
 // ── Pricing analysis ──────────────────────────────────────────────────────────
@@ -167,12 +145,18 @@ async function analyzeWithClaude(
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 8096,
-    system: `You are a Star Citizen marketplace pricing expert helping a seller price CCUs on StarHangar.com.
+    system: [
+      {
+        type: "text",
+        text: `You are a Star Citizen marketplace pricing expert helping a seller price CCUs on StarHangar.com.
 CCUs let players upgrade from one ship to another. Recommend competitive prices based on:
 - Active market listings (price at or just below the lowest to sell quickly)
 - MSRP difference (cost floor)
 - Insurance type (Warbond/120-month = more valuable)
 - If no market data: estimate MSRP diff × 1.1–1.3 for popular paths`,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -212,12 +196,19 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic({ apiKey: anthropicKey });
 
+  const host = process.env.BROWSERLESS_HOST ?? "production-sfo.browserless.io";
+  const wsEndpoint = `wss://${host}?token=${browserlessKey}`;
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
+
+      const browser = await chromium.connectOverCDP(wsEndpoint);
+      const context = await browser.newContext();
+      const page = await context.newPage();
 
       try {
         send({ type: "start", total: items.length });
@@ -232,11 +223,7 @@ export async function POST(req: NextRequest) {
           });
 
           try {
-            const listings = await scrapeListings(
-              browserlessKey,
-              item.fromShip,
-              item.toShip
-            );
+            const listings = await scrapeWithPage(page, item.fromShip, item.toShip);
             item.listings = listings;
 
             const prices = listings.map((l) => l.price);
@@ -248,6 +235,8 @@ export async function POST(req: NextRequest) {
               listingCount: listings.length,
               minPrice: prices.length ? Math.min(...prices) : null,
               maxPrice: prices.length ? Math.max(...prices) : null,
+              quantity: item.countOwned,
+              insurance: item.insurance,
             });
           } catch (err) {
             send({
@@ -260,8 +249,7 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // Small delay between scrapes
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, 500));
         }
 
         send({ type: "analyzing" });
@@ -270,6 +258,8 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         send({ type: "error", message: String(err) });
       } finally {
+        await context.close().catch(() => {});
+        await browser.close().catch(() => {});
         controller.close();
       }
     },
