@@ -4,3 +4,4 @@ __pycache__/
 .env
 screenshots/
 pricing_report.md
+node_modules/
