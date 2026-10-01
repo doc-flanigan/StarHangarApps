@@ -1,8 +1,6 @@
-node_modules/
-*.jpg
-*.jpeg
-*.png
+__pycache__/
+*.pyc
+*.pyo
 .env
 screenshots/
-autofill_progress.json
-ship_options_cache.json
+pricing_report.md

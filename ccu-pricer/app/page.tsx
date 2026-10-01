@@ -1,0 +1,963 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+
+interface StreamEvent {
+  type: "start" | "searching" | "result" | "analyzing" | "done" | "error";
+  total?: number;
+  index?: number;
+  fromShip?: string;
+  toShip?: string;
+  listingCount?: number;
+  minPrice?: number | null;
+  maxPrice?: number | null;
+  quantity?: number;
+  insurance?: string;
+  error?: string;
+  report?: string;
+  message?: string;
+}
+
+interface CCUResult {
+  fromShip: string;
+  toShip: string;
+  listingCount: number;
+  minPrice: number | null;
+  maxPrice: number | null;
+  quantity: number;
+  insurance: string;
+  error?: string;
+}
+
+type Tab = "web" | "local" | "thumbnail";
+
+export default function Home() {
+  const [tab, setTab] = useState<Tab>("web");
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [results, setResults] = useState<CCUResult[]>([]);
+  const [report, setReport] = useState("");
+  const [error, setError] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+
+  async function run() {
+    if (!csvFile) return;
+
+    setRunning(true);
+    setResults([]);
+    setReport("");
+    setError("");
+    setProgress(0);
+    setStatus("Starting…");
+
+    const formData = new FormData();
+    formData.append("csv", csvFile);
+
+    abortRef.current = new AbortController();
+
+    try {
+      const res = await fetch("/api/price", {
+        method: "POST",
+        body: formData,
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        setError(await res.text());
+        return;
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const event: StreamEvent = JSON.parse(line.slice(6));
+
+          if (event.type === "start") {
+            setTotal(event.total ?? 0);
+            setStatus(`Searching StarHangar for ${event.total} CCU types…`);
+          } else if (event.type === "searching") {
+            setStatus(`Searching: ${event.fromShip} → ${event.toShip}`);
+          } else if (event.type === "result") {
+            setProgress((p) => p + 1);
+            setResults((prev) => [
+              ...prev,
+              {
+                fromShip: event.fromShip!,
+                toShip: event.toShip!,
+                listingCount: event.listingCount ?? 0,
+                minPrice: event.minPrice ?? null,
+                maxPrice: event.maxPrice ?? null,
+                quantity: event.quantity ?? 1,
+                insurance: event.insurance ?? "",
+                error: event.error,
+              },
+            ]);
+          } else if (event.type === "analyzing") {
+            setStatus("Analyzing market data with Claude…");
+          } else if (event.type === "done") {
+            setReport(event.report ?? "");
+            setStatus("Done!");
+          } else if (event.type === "error") {
+            setError(event.message ?? "Unknown error");
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if ((err as Error).name !== "AbortError") {
+        setError(String(err));
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function stop() {
+    abortRef.current?.abort();
+    setRunning(false);
+    setStatus("Stopped.");
+  }
+
+  const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
+
+  return (
+    <main className="min-h-screen bg-gray-950 text-gray-100 p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-amber-400">
+            StarHangar CCU Pricing Agent
+          </h1>
+          <p className="text-gray-400 mt-1 text-sm">
+            Check live StarHangar listings and get Claude&apos;s recommended prices for your CCU inventory.
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+          {(["web", "thumbnail", "local"] as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                tab === t
+                  ? "bg-amber-500 text-gray-950"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              {t === "web" ? "☁ Web Tool" : t === "thumbnail" ? "🖼 Thumbnail" : "⬇ Run Locally"}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Web tab ─────────────────────────────────────────────────────── */}
+        {tab === "web" && (
+          <>
+            {/* CSV upload + run */}
+            <div className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800">
+              <label className="block">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">
+                  CCU Inventory CSV
+                </span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+                  className="mt-1 w-full text-sm text-gray-300 file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-amber-600 file:text-white hover:file:bg-amber-500 cursor-pointer"
+                />
+                {csvFile && (
+                  <span className="text-xs text-gray-500">{csvFile.name}</span>
+                )}
+              </label>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={run}
+                  disabled={running || !csvFile}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-semibold rounded-lg text-sm transition-colors"
+                >
+                  {running ? "Running…" : "Run Pricing Agent"}
+                </button>
+                {running && (
+                  <button
+                    onClick={stop}
+                    className="px-5 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm transition-colors"
+                  >
+                    Stop
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Progress */}
+            {(running || progress > 0) && (
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm text-gray-400">
+                  <span>{status}</span>
+                  {total > 0 && <span>{progress}/{total}</span>}
+                </div>
+                {total > 0 && (
+                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 transition-all duration-300"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="bg-red-950 border border-red-800 text-red-300 rounded-xl p-4 text-sm">
+                <strong>Error:</strong> {error}
+              </div>
+            )}
+
+            {/* Live results table */}
+            {results.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+                  <h2 className="font-semibold text-gray-200">Market Data — Live Results</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const rows = [
+                          ["From", "To", "Listings", "Min Price", "Max Price"],
+                          ...results.map((r) => [
+                            r.fromShip,
+                            r.toShip,
+                            String(r.listingCount),
+                            r.minPrice != null ? String(r.minPrice) : "",
+                            r.maxPrice != null ? String(r.maxPrice) : "",
+                          ]),
+                        ];
+                        const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+                        const blob = new Blob([csv], { type: "text/csv" });
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = "market_data.csv";
+                        a.click();
+                      }}
+                      className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
+                    >
+                      Download CSV
+                    </button>
+                    <DownloadAllImagesButton results={results} />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-gray-500 uppercase bg-gray-800/50">
+                        <th className="px-4 py-2 text-left">From</th>
+                        <th className="px-4 py-2 text-left">To</th>
+                        <th className="px-4 py-2 text-right">Listings</th>
+                        <th className="px-4 py-2 text-right">Min</th>
+                        <th className="px-4 py-2 text-right">Max</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {results.map((r, i) => (
+                        <tr key={i} className="hover:bg-gray-800/30">
+                          <td className="px-4 py-2 text-gray-300">{r.fromShip}</td>
+                          <td className="px-4 py-2 text-gray-300">{r.toShip}</td>
+                          {r.error ? (
+                            <td colSpan={3} className="px-4 py-2 text-red-400 text-xs">{r.error}</td>
+                          ) : (
+                            <>
+                              <td className="px-4 py-2 text-right">
+                                <span className={r.listingCount === 0 ? "text-gray-500" : "text-green-400"}>
+                                  {r.listingCount}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-300">
+                                {r.minPrice != null ? `$${r.minPrice}` : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-300">
+                                {r.maxPrice != null ? `$${r.maxPrice}` : "—"}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnails */}
+            {results.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-800">
+                  <h2 className="font-semibold text-gray-200">Listing Thumbnails</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    1200×630 JPEGs using RSI ship art — ready to upload to StarHangar.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+                  {results.map((r, i) => (
+                    <ThumbnailCard key={i} fromShip={r.fromShip} toShip={r.toShip} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Post Listings */}
+            {results.length > 0 && (
+              <PostListings results={results} />
+            )}
+
+            {/* Pricing report */}
+            {report && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+                  <h2 className="font-semibold text-gray-200">Claude&apos;s Pricing Recommendations</h2>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([report], { type: "text/markdown" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "pricing_report.md";
+                      a.click();
+                    }}
+                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors"
+                  >
+                    Download .md
+                  </button>
+                </div>
+                <div className="p-6 overflow-x-auto">
+                  <ReportRenderer markdown={report} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Thumbnail tab ───────────────────────────────────────────────── */}
+        {tab === "thumbnail" && <ThumbnailTester />}
+
+        {/* ── Local tab ───────────────────────────────────────────────────── */}
+        {tab === "local" && (
+          <div className="space-y-6">
+            <div className="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-semibold text-gray-200">Local Python Script</h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Uses your local Chrome browser — no Browserless account needed.
+                    Claude navigates StarHangar directly and outputs a pricing report.
+                  </p>
+                </div>
+                <a
+                  href="/pricing_agent.py"
+                  download="pricing_agent.py"
+                  className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-gray-950 font-semibold rounded-lg text-sm transition-colors"
+                >
+                  ⬇ Download Script
+                </a>
+              </div>
+            </div>
+
+            {/* Step-by-step instructions */}
+            <div className="space-y-4">
+              {[
+                {
+                  step: "1",
+                  title: "Install dependencies",
+                  lang: "bash",
+                  code: `pip install anthropic playwright\nplaywright install chromium`,
+                },
+                {
+                  step: "2",
+                  title: "Set your Anthropic API key",
+                  lang: "bash",
+                  code: `# Mac / Linux\nexport ANTHROPIC_API_KEY=sk-ant-...\n\n# Windows (PowerShell)\n$env:ANTHROPIC_API_KEY = "sk-ant-..."`,
+                },
+                {
+                  step: "3",
+                  title: "Run the script with your CSV",
+                  lang: "bash",
+                  code: `python pricing_agent.py ccus_20260507.csv`,
+                  note: "A browser window opens automatically. Don't close it — the script drives it.",
+                },
+                {
+                  step: "4",
+                  title: "Optional: use your existing Chrome (keeps cookies & login)",
+                  lang: "bash",
+                  code: `# Launch Chrome with remote debugging first:\n# Mac\n/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\\n  --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug\n\n# Windows (PowerShell)\n& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" \`\n  --remote-debugging-port=9222 --user-data-dir=$env:TEMP\\chrome-debug\n\n# Then run the script:\nexport CHROME_CDP_URL=http://localhost:9222\npython pricing_agent.py ccus_20260507.csv`,
+                },
+              ].map(({ step, title, lang, code, note }) => (
+                <div key={step} className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
+                    <span className="w-6 h-6 rounded-full bg-amber-500 text-gray-950 text-xs font-bold flex items-center justify-center shrink-0">
+                      {step}
+                    </span>
+                    <span className="font-medium text-gray-200 text-sm">{title}</span>
+                  </div>
+                  <div className="relative group">
+                    <pre className="p-4 text-sm text-green-300 font-mono overflow-x-auto bg-gray-950 leading-relaxed">
+                      <code>{code}</code>
+                    </pre>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(code)}
+                      className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  {note && (
+                    <div className="px-4 py-2 bg-amber-950/30 border-t border-amber-900/40 text-xs text-amber-300">
+                      {note}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 text-sm text-gray-400 space-y-1">
+              <p className="font-medium text-gray-300">Output</p>
+              <p>The script prints live progress per CCU, then saves <code className="text-amber-400">pricing_report.md</code> in the same folder.</p>
+              <p>Screenshots of each search step are saved to <code className="text-amber-400">screenshots/</code> for debugging.</p>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </main>
+  );
+}
+
+interface PostEvent {
+  type: "start" | "posting" | "posted" | "failed" | "done" | "fatal";
+  total?: number;
+  index?: number;
+  fromShip?: string;
+  toShip?: string;
+  error?: string;
+  message?: string;
+}
+
+interface PostRow {
+  fromShip: string;
+  toShip: string;
+  price: string;
+  quantity: number;
+  insurance: string;
+  include: boolean;
+  status: "idle" | "posting" | "posted" | "failed";
+  error?: string;
+}
+
+function PostListings({ results }: { results: CCUResult[] }) {
+  const [rows, setRows] = useState<PostRow[]>(() =>
+    results
+      .filter((r) => !r.error)
+      .map((r) => ({
+        fromShip: r.fromShip,
+        toShip: r.toShip,
+        price: r.minPrice != null ? String(r.minPrice) : "",
+        quantity: r.quantity || 1,
+        insurance: r.insurance || "",
+        include: true,
+        status: "idle",
+      }))
+  );
+  const [posting, setPosting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [fatalError, setFatalError] = useState("");
+
+  function updateRow(i: number, patch: Partial<PostRow>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  async function startPosting() {
+    const toPost = rows.filter((r) => r.include && r.price);
+    if (!toPost.length) return;
+    setPosting(true);
+    setDone(false);
+    setFatalError("");
+
+    const res = await fetch("/api/post-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listings: toPost.map((r) => ({
+          fromShip: r.fromShip,
+          toShip: r.toShip,
+          price: parseFloat(r.price),
+          quantity: r.quantity,
+          insurance: r.insurance,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      setFatalError(await res.text());
+      setPosting(false);
+      return;
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // Map from original row index by fromShip+toShip
+    const rowIndex = (fromShip: string, toShip: string) =>
+      rows.findIndex((r) => r.fromShip === fromShip && r.toShip === toShip);
+
+    while (true) {
+      const { done: streamDone, value } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const ev: PostEvent = JSON.parse(line.slice(6));
+        if (ev.type === "posting") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posting" });
+        } else if (ev.type === "posted") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "posted" });
+        } else if (ev.type === "failed") {
+          const idx = rowIndex(ev.fromShip!, ev.toShip!);
+          if (idx >= 0) updateRow(idx, { status: "failed", error: ev.error });
+        } else if (ev.type === "done") {
+          setDone(true);
+        } else if (ev.type === "fatal") {
+          setFatalError(ev.message ?? "Unknown error");
+        }
+      }
+    }
+    setPosting(false);
+  }
+
+  const includedCount = rows.filter((r) => r.include && r.price).length;
+
+  return (
+    <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-800">
+        <h2 className="font-semibold text-gray-200">Post Listings to Star Hangar</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Requires local Chrome with{" "}
+          <code className="text-amber-400">--remote-debugging-port=9222</code> and{" "}
+          <code className="text-amber-400">npm run dev</code> running locally.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-500 uppercase bg-gray-800/50">
+              <th className="px-3 py-2 text-center w-8">
+                <input
+                  type="checkbox"
+                  checked={rows.every((r) => r.include)}
+                  onChange={(e) => setRows((prev) => prev.map((r) => ({ ...r, include: e.target.checked })))}
+                  className="accent-amber-500"
+                />
+              </th>
+              <th className="px-3 py-2 text-left">From</th>
+              <th className="px-3 py-2 text-left">To</th>
+              <th className="px-3 py-2 text-right w-28">Price ($)</th>
+              <th className="px-3 py-2 text-right w-20">Qty</th>
+              <th className="px-3 py-2 text-left">Insurance</th>
+              <th className="px-3 py-2 text-center w-24">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800">
+            {rows.map((row, i) => (
+              <tr key={i} className={`hover:bg-gray-800/30 ${!row.include ? "opacity-40" : ""}`}>
+                <td className="px-3 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={row.include}
+                    onChange={(e) => updateRow(i, { include: e.target.checked })}
+                    disabled={posting}
+                    className="accent-amber-500"
+                  />
+                </td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.fromShip}</td>
+                <td className="px-3 py-2 text-gray-300 whitespace-nowrap">{row.toShip}</td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.price}
+                    onChange={(e) => updateRow(i, { price: e.target.value })}
+                    disabled={posting}
+                    placeholder="0.00"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number"
+                    value={row.quantity}
+                    onChange={(e) => updateRow(i, { quantity: parseInt(e.target.value) || 1 })}
+                    disabled={posting}
+                    min={1}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    value={row.insurance}
+                    onChange={(e) => updateRow(i, { insurance: e.target.value })}
+                    disabled={posting}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                  />
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {row.status === "idle" && <span className="text-gray-600 text-xs">—</span>}
+                  {row.status === "posting" && <span className="text-amber-400 text-xs animate-pulse">Posting…</span>}
+                  {row.status === "posted" && <span className="text-green-400 text-xs">✓ Posted</span>}
+                  {row.status === "failed" && (
+                    <span className="text-red-400 text-xs" title={row.error}>✗ Failed</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-3 border-t border-gray-800 flex items-center gap-3">
+        <button
+          onClick={startPosting}
+          disabled={posting || includedCount === 0}
+          className="px-5 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-sm transition-colors"
+        >
+          {posting ? "Posting…" : `Post ${includedCount} Listing${includedCount !== 1 ? "s" : ""}`}
+        </button>
+        {done && <span className="text-green-400 text-sm">All done!</span>}
+        {fatalError && (
+          <span className="text-red-400 text-xs">{fatalError}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DownloadAllImagesButton({ results }: { results: CCUResult[] }) {
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  async function downloadAll() {
+    setDownloading(true);
+    setProgress(0);
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      try {
+        const url = `/api/thumbnail?from=${encodeURIComponent(r.fromShip)}&to=${encodeURIComponent(r.toShip)}&t=${Date.now()}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) {
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${r.fromShip}-to-${r.toShip}.png`.replace(/\s+/g, "-");
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      } catch {
+        // skip failed images
+      }
+      setProgress(i + 1);
+      await new Promise((res) => setTimeout(res, 300));
+    }
+    setDownloading(false);
+  }
+
+  return (
+    <button
+      onClick={downloadAll}
+      disabled={downloading}
+      className="text-xs px-3 py-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
+    >
+      {downloading ? `Downloading… ${progress}/${results.length}` : "⬇ Download All Images"}
+    </button>
+  );
+}
+
+function ShipAutocomplete({
+  label,
+  value,
+  onChange,
+  ships,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  ships: string[];
+  placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  const filtered = value.length > 0
+    ? ships.filter((s) => s.toLowerCase().includes(value.toLowerCase())).slice(0, 10)
+    : [];
+  const showDropdown = focused && filtered.length > 0;
+
+  return (
+    <div className="relative">
+      <label className="block">
+        <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+        <input
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500"
+        />
+      </label>
+      {showDropdown && (
+        <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+          {filtered.map((ship) => (
+            <button
+              key={ship}
+              onMouseDown={() => { onChange(ship); setFocused(false); }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-amber-600/20 hover:text-amber-300 transition-colors border-b border-gray-700/50 last:border-0"
+            >
+              {ship}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThumbnailTester() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [ships, setShips] = useState<string[]>([]);
+
+  // Fetch ship list once on mount
+  useEffect(() => {
+    fetch("/api/ships")
+      .then((r) => r.json())
+      .then((d) => setShips(d.ships ?? []))
+      .catch(() => {});
+  }, []);
+
+  async function generate() {
+    if (!from.trim() || !to.trim()) return;
+    setLoading(true);
+    setErr("");
+    setPreviewUrl(null);
+    try {
+      const url = `/api/thumbnail?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}&t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        setErr(await res.text());
+        return;
+      }
+      const blob = await res.blob();
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function download() {
+    if (!previewUrl) return;
+    const a = document.createElement("a");
+    a.href = previewUrl;
+    a.download = `${from.trim()}-to-${to.trim()}.jpg`.replace(/\s+/g, "-");
+    a.click();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+        <p className="text-sm text-gray-400">
+          Generate a 1200×630 listing thumbnail using RSI ship art. Enter ship names exactly as they appear in your inventory (e.g. <span className="text-amber-400">Aurora MR</span>, <span className="text-amber-400">400i</span>).
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <ShipAutocomplete
+            label="From ship"
+            value={from}
+            onChange={setFrom}
+            ships={ships}
+            placeholder="e.g. Aurora MR"
+          />
+          <ShipAutocomplete
+            label="To ship"
+            value={to}
+            onChange={setTo}
+            ships={ships}
+            placeholder="e.g. 400i"
+          />
+        </div>
+        <button
+          onClick={generate}
+          disabled={loading || !from.trim() || !to.trim()}
+          className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-semibold rounded-lg text-sm transition-colors"
+        >
+          {loading ? "Generating…" : "Generate Thumbnail"}
+        </button>
+      </div>
+
+      {err && (
+        <div className="bg-red-950 border border-red-800 text-red-300 rounded-xl p-4 text-sm">
+          {err}
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+            <span className="text-sm text-gray-300">
+              {from} <span className="text-amber-400">→</span> {to}
+            </span>
+            <button
+              onClick={download}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+            >
+              ⬇ Download
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewUrl} alt={`${from} → ${to}`} className="w-full" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThumbnailCard({ fromShip, toShip }: { fromShip: string; toShip: string }) {
+  const url = `/api/thumbnail?from=${encodeURIComponent(fromShip)}&to=${encodeURIComponent(toShip)}`;
+  const filename = `${fromShip}-to-${toShip}.jpg`.replace(/\s+/g, "-");
+
+  async function download() {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-gray-700 bg-gray-800/40 group">
+      {/* Preview — lazy loads on first render */}
+      <div className="relative aspect-[1200/630] bg-gray-800">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={`${fromShip} → ${toShip}`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      </div>
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-xs text-gray-400 truncate">
+          {fromShip} <span className="text-amber-400">→</span> {toShip}
+        </span>
+        <button
+          onClick={download}
+          className="shrink-0 ml-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md transition-colors"
+        >
+          ⬇ Download
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReportRenderer({ markdown }: { markdown: string }) {
+  const lines = markdown.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.startsWith("|") && lines[i + 1]?.match(/^\|[-| :]+\|/)) {
+      const headers = line.split("|").filter(Boolean).map((h) => h.trim());
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].startsWith("|")) {
+        rows.push(lines[i].split("|").filter(Boolean).map((c) => c.trim()));
+        i++;
+      }
+      elements.push(
+        <div key={i} className="overflow-x-auto my-4">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-800">
+                {headers.map((h, j) => (
+                  <th key={j} className="px-3 py-2 text-left text-xs text-gray-400 uppercase border border-gray-700 whitespace-nowrap">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className="border-b border-gray-800 hover:bg-gray-800/30">
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-1.5 border border-gray-800 text-gray-300 whitespace-nowrap">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    } else if (line.startsWith("## ")) {
+      elements.push(<h2 key={i} className="text-lg font-semibold text-gray-200 mt-4 mb-2">{line.slice(3)}</h2>);
+      i++;
+    } else if (line.startsWith("# ")) {
+      elements.push(<h1 key={i} className="text-xl font-bold text-amber-400 mt-4 mb-2">{line.slice(2)}</h1>);
+      i++;
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      const items: string[] = [];
+      while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("* "))) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
+      elements.push(
+        <ul key={i} className="list-disc list-inside space-y-1 my-2 text-gray-300 text-sm">
+          {items.map((item, j) => <li key={j}>{item}</li>)}
+        </ul>
+      );
+    } else if (line.trim()) {
+      elements.push(<p key={i} className="text-gray-300 my-1 text-sm">{line}</p>);
+      i++;
+    } else {
+      i++;
+    }
+  }
+
+  return <div>{elements}</div>;
+}
