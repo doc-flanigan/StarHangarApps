@@ -8,7 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 
-const PORT = 4000;
+const PORT = 4444;
 const WIN = process.platform === "win32";
 const APP_DIR = __dirname;
 const REPO_DIR = path.resolve(__dirname, "..");
