@@ -1,0 +1,21 @@
+# Dependabot: SECURITY updates only, grouped, checked weekly.
+# open-pull-requests-limit: 0 switches off routine version-bump PRs; security PRs
+# still open once "Dependabot security updates" is enabled in Settings > Code security.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directories: ["/", "/ccu-pricer"]
+    schedule: { interval: "weekly", day: "monday", time: "09:00", timezone: "America/Chicago" }
+    open-pull-requests-limit: 0
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: "pip"
+    directories: ["/"]
+    schedule: { interval: "weekly", day: "monday", time: "09:00", timezone: "America/Chicago" }
+    open-pull-requests-limit: 0
+    groups:
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
